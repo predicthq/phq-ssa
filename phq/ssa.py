@@ -1,133 +1,92 @@
+import logging
+
 import numpy as np
-import pandas as pd
-from numpy import matrix as m
-from pandas import DataFrame as df
 from scipy import linalg
 
+log = logging.getLogger(__name__)
 
-class SSA(object):
-    '''Singular Spectrum Analysis object'''
+# TODO @Xiping review this
+MINIMUM_TIMESERIES_DATA_LENGTH = 100
 
-    def __init__(self, time_series):
 
-        self.ts = pd.DataFrame(time_series)
-        self.ts_name = self.ts.columns.tolist()[0]
-        if self.ts_name == 0:
-            self.ts_name = 'ts'
-        self.ts_v = self.ts.values
-        self.ts_N = self.ts.shape[0]
-        self.freq = self.ts.index.inferred_freq
+def _get_contributions(singular_values):
+    """
+    Calculate the relative contribution of each of the positive singular values
+    :param singular_values: numpy array
+    :return: Dataframe with positive Contribution values
+    """
+    lambdas = np.power(singular_values, 2)
+    contributions = lambdas / lambdas.sum()
+    return contributions[contributions > 0]
 
-    @staticmethod
-    def _printer(name, *args):
-        '''Helper function to print messages neatly'''
-        print('-' * 40)
-        print(name + ':')
-        for msg in args:
-            print(msg)
 
-    @staticmethod
-    def _dot(x, y):
-        '''Alternative formulation of dot product to allow missing values in arrays/matrices'''
-        pass
+def _diagonal_averaging(trajectory_matrix):
+    """
+    Performs anti-diagonal averaging from given trajectory matrix
+    :param trajectory_matrix: numpy 2D array
+    :return: Pandas DataFrame object containing the reconstructed series
+    """
+    row_count, col_count = trajectory_matrix.shape
 
-    @staticmethod
-    def get_contributions(X=None, s=None):
-        '''Calculate the relative contribution of each of the singular values'''
-        lambdas = np.power(s, 2)
-        frob_norm = np.linalg.norm(X)
-        ret = df(lambdas / (frob_norm ** 2), columns=['Contribution'])
-        ret['Contribution'] = ret.Contribution.round(4)
-        return ret[ret.Contribution > 0]
+    if row_count > col_count:
+        # Transpose the matrix
+        trajectory_matrix = trajectory_matrix.T
+        row_count, col_count = col_count, row_count
 
-    @staticmethod
-    def diagonal_averaging(hankel_matrix):
-        '''Performs anti-diagonal averaging from given hankel matrix
-        Returns: Pandas DataFrame object containing the reconstructed series'''
-        mat = m(hankel_matrix)
-        L, K = mat.shape
-        L_star, K_star = min(L, K), max(L, K)
-        new = np.zeros((L, K))
-        if L > K:
-            mat = mat.T
-        ret = []
+    result = []
+    # Diagonal Averaging
+    for k in range(1 - col_count, row_count):
+        mask = np.eye(col_count, k=k, dtype='bool')[::-1][:row_count, :]
+        ma = np.ma.masked_array(trajectory_matrix.A, mask=(1 - mask))
+        result += [ma.sum() / mask.sum()]
 
-        # Diagonal Averaging
-        for k in range(1 - K_star, L_star):
-            mask = np.eye(K_star, k=k, dtype='bool')[::-1][:L_star, :]
-            mask_n = sum(sum(mask))
-            ma = np.ma.masked_array(mat.A, mask=1 - mask)
-            ret += [ma.sum() / mask_n]
+    return np.array(result)
 
-        return df(ret).rename(columns={0: 'Reconstruction'})
 
-    def embed(self, embedding_dimension=None, suspected_frequency=None, verbose=False, return_df=False):
-        '''Embed the time series with embedding_dimension window size.
-        Optional: suspected_frequency changes embedding_dimension such that it is divisible by suspected frequency'''
-        if not embedding_dimension:
-            self.embedding_dimension = self.ts_N // 2
-        else:
-            self.embedding_dimension = embedding_dimension
-        if suspected_frequency:
-            self.suspected_frequency = suspected_frequency
-            self.embedding_dimension = (self.embedding_dimension // self.suspected_frequency) * self.suspected_frequency
+def embed(time_series_data, embedding_dimension=None):
+    """
+    Embed the time series with embedding_dimension window size.
+    :param time_series_data: Numpy array
+    :param embedding_dimension: int
+    :return: trajectory matrix (Numpy matrix)
+    """
+    timeseries_data_count = time_series_data.shape[0]
 
-        self.K = self.ts_N - self.embedding_dimension + 1
-        self.X = m(linalg.hankel(self.ts, np.zeros(self.embedding_dimension))).T[:, :self.K]
-        self.X_df = df(self.X)
-        self.X_complete = self.X_df.dropna(axis=1)
-        self.X_com = m(self.X_complete.values)
-        self.X_missing = self.X_df.drop(self.X_complete.columns, axis=1)
-        self.X_miss = m(self.X_missing.values)
-        self.trajectory_dimentions = self.X_df.shape
-        self.complete_dimensions = self.X_complete.shape
-        self.missing_dimensions = self.X_missing.shape
-        self.no_missing = self.missing_dimensions[1] == 0
+    if timeseries_data_count < MINIMUM_TIMESERIES_DATA_LENGTH:
+        raise ValueError(f'Time series data length ({timeseries_data_count}) is smaller than the required minimum length of {MINIMUM_TIMESERIES_DATA_LENGTH}')
 
-        if verbose:
-            msg1 = 'Embedding dimension\t:  {}\nTrajectory dimensions\t: {}'
-            msg2 = 'Complete dimension\t: {}\nMissing dimension     \t: {}'
-            msg1 = msg1.format(self.embedding_dimension, self.trajectory_dimentions)
-            msg2 = msg2.format(self.complete_dimensions, self.missing_dimensions)
-            self._printer('EMBEDDING SUMMARY', msg1, msg2)
+    embedding_dimension = embedding_dimension or timeseries_data_count // 2
+    log.debug('Embedding dimension: %(dimension)s', {'dimension': embedding_dimension})
 
-        if return_df:
-            return self.X_df
+    k = timeseries_data_count - embedding_dimension + 1
+    trajectory_matrix = np.matrix(linalg.hankel(time_series_data, np.zeros(embedding_dimension))).T[:, :k]
+    return trajectory_matrix
 
-    def decompose(self, verbose=False):
-        '''Perform the Singular Value Decomposition and identify the rank of the embedding subspace
-        Characteristic of projection: the proportion of variance captured in the subspace'''
-        X = self.X_com
-        self.S = X * X.T
-        self.U, self.s, self.V = linalg.svd(self.S)
-        self.U, self.s, self.V = m(self.U), np.sqrt(self.s), m(self.V)
-        self.d = np.linalg.matrix_rank(X)
-        Vs, Xs, Ys, Zs = {}, {}, {}, {}
-        for i in range(self.d):
-            Zs[i] = self.s[i] * self.V[:, i]
-            Vs[i] = X.T * (self.U[:, i] / self.s[i])
-            Ys[i] = self.s[i] * self.U[:, i]
-            Xs[i] = Ys[i] * (m(Vs[i]).T)
-        self.Vs, self.Xs = Vs, Xs
-        self.s_contributions = self.get_contributions(X, self.s)
-        self.r = len(self.s_contributions[self.s_contributions > 0])
-        self.r_characteristic = round((self.s[:self.r] ** 2).sum() / (self.s ** 2).sum(), 4)
-        self.orthonormal_base = {i: self.U[:, i] for i in range(self.r)}
 
-        if verbose:
-            msg1 = 'Rank of trajectory\t\t: {}\nDimension of projection space\t: {}'
-            msg1 = msg1.format(self.d, self.r)
-            msg2 = 'Characteristic of projection\t: {}'.format(self.r_characteristic)
-            self._printer('DECOMPOSITION SUMMARY', msg1, msg2)
+def reconstruction(trajectory_matrix, contribution_proportion):
+    """
+    Reconstruction based on the trajectory matrix/matrices and contributionprop
+    :param trajectory_matrix: trajectory_matrix
+    :param contribution_proportion: the percentage of energy for reconstruction
+    """
+    u, s, _ = linalg.svd(trajectory_matrix * trajectory_matrix.T)
+    u = np.matrix(u)
+    s = np.sqrt(s)
 
-    @classmethod
-    def reconstruction(cls, *hankel):
-        '''Reconstruction of the hankel matrix/matrices passed to *hankel'''
-        hankel_mat = None
-        for han in hankel:
-            if isinstance(hankel_mat, m):
-                hankel_mat = hankel_mat + han
-            else:
-                hankel_mat = han.copy()
-        hankel_full = cls.diagonal_averaging(hankel_mat)
-        return hankel_full
+    ssa_s_contributions = _get_contributions(s)
+    sum_ssa = [sum(ssa_s_contributions[0:i]) for i in range(ssa_s_contributions.shape[0])]
+
+    nsig = np.argmin([abs(i - contribution_proportion) for i in sum_ssa])
+
+    xs = np.zeros(trajectory_matrix.shape)
+    for i in range(nsig):
+        vi = trajectory_matrix.T * (u[:, i] / s[i])
+        yi = s[i] * u[:, i]
+        xs = xs + (yi * np.matrix(vi).T)
+    r = len(ssa_s_contributions)
+    log.debug('Rank of trajectory: %(rank)d', {'rank': r})
+    log.debug('Rank of reconstructed of trajectory matrix: %(nsig)s', {'nsig': nsig})
+
+    characteristic = round((s[:r] ** 2).sum() / (s ** 2).sum(), 4)
+    log.debug('Characteristic of projection: %(characteristics)f', {'characteristics': characteristic})
+    return _diagonal_averaging(xs), nsig
