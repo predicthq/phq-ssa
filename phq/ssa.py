@@ -5,7 +5,6 @@ from scipy import linalg
 
 log = logging.getLogger(__name__)
 
-# TODO @Xiping review this
 MINIMUM_TIMESERIES_DATA_LENGTH = 100
 
 
@@ -50,12 +49,29 @@ def embed(time_series_data, embedding_dimension=None):
     :param embedding_dimension: int
     :return: trajectory matrix (Numpy matrix)
     """
+
+    if not isinstance(time_series_data, np.ndarray):
+        raise TypeError('time_series_data should be an instance of Numpy array')
+
     timeseries_data_count = time_series_data.shape[0]
 
     if timeseries_data_count < MINIMUM_TIMESERIES_DATA_LENGTH:
-        raise ValueError(f'Time series data length ({timeseries_data_count}) is smaller than the required minimum length of {MINIMUM_TIMESERIES_DATA_LENGTH}')
+        raise ValueError(f'time_series_data length ({timeseries_data_count}) is smaller than the required minimum length of {MINIMUM_TIMESERIES_DATA_LENGTH}')
 
-    embedding_dimension = embedding_dimension or timeseries_data_count // 2
+    if time_series_data.dtype != np.dtype('float64'):
+        raise TypeError(f'time_series_data values should be all float type')
+    if np.sum(time_series_data) <= 0:
+        raise ValueError('time_series_data should not be all zeros')
+
+    default_embedding_dimension = timeseries_data_count // 2
+    if embedding_dimension and embedding_dimension > default_embedding_dimension:
+        log.warning('Provided embedding dimension %(embedding_dimension)d is greater than default embeddiing_dimension %(default_embedding_dimension)d',
+                    {
+                        'embedding_dimension': embedding_dimension,
+                        'default_embedding_dimension': default_embedding_dimension
+                    })
+    elif not embedding_dimension:
+        embedding_dimension = default_embedding_dimension
     log.debug('Embedding dimension: %(dimension)s', {'dimension': embedding_dimension})
 
     k = timeseries_data_count - embedding_dimension + 1
@@ -74,9 +90,9 @@ def reconstruction(trajectory_matrix, contribution_proportion):
     s = np.sqrt(s)
 
     ssa_s_contributions = _get_contributions(s)
-    sum_ssa = [sum(ssa_s_contributions[0:i]) for i in range(ssa_s_contributions.shape[0])]
+    sum_ssa = [sum(ssa_s_contributions[0:i + 1]) for i in range(ssa_s_contributions.shape[0])]
 
-    nsig = np.argmin([abs(i - contribution_proportion) for i in sum_ssa])
+    nsig = np.argmin([abs(i - contribution_proportion) for i in sum_ssa]) + 1
 
     xs = np.zeros(trajectory_matrix.shape)
     for i in range(nsig):
