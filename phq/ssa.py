@@ -58,9 +58,9 @@ def embed(time_series_data, embedding_dimension=None):
     if timeseries_data_count < MINIMUM_TIMESERIES_DATA_LENGTH:
         raise ValueError(f'time_series_data length ({timeseries_data_count}) is smaller than the required minimum length of {MINIMUM_TIMESERIES_DATA_LENGTH}')
 
-    if time_series_data.dtype != np.dtype('float64'):
-        raise TypeError(f'time_series_data values should be all float type')
-    if np.sum(time_series_data) <= 0:
+    if np.isfinite(time_series_data):
+        raise TypeError(f'time_series_data contains one or more infinite values')
+    if np.sum(np.abs(time_series_data)) == 0:
         raise ValueError('time_series_data should not be all zeros')
 
     default_embedding_dimension = timeseries_data_count // 2
