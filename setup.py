@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
@@ -19,7 +19,7 @@ setup(
     author_email='developers@predicthq.com',
     url='https://github.com/predicthq/phq-ssa',
     install_requires=requirements,
-    packages=find_packages(),
+    packages=find_namespace_packages(include=['phq.*']),
     classifiers=[
         "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
