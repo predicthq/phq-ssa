@@ -36,7 +36,7 @@ def _diagonal_averaging(trajectory_matrix):
     # Diagonal Averaging
     for k in range(1 - col_count, row_count):
         mask = np.eye(col_count, k=k, dtype='bool')[::-1][:row_count, :]
-        ma = np.ma.masked_array(trajectory_matrix.A, mask=(1 - mask))
+        ma = np.ma.masked_array(trajectory_matrix, mask=(1 - mask))
         result += [ma.sum() / mask.sum()]
 
     return np.array(result)
@@ -47,7 +47,7 @@ def embed(time_series_data, embedding_dimension=None):
     Embed the time series with embedding_dimension window size.
     :param time_series_data: Numpy array
     :param embedding_dimension: int
-    :return: trajectory matrix (Numpy matrix)
+    :return: trajectory matrix (2D Numpy array)
     """
 
     if not isinstance(time_series_data, np.ndarray):
@@ -75,7 +75,7 @@ def embed(time_series_data, embedding_dimension=None):
     log.debug('Embedding dimension: %(dimension)s', {'dimension': embedding_dimension})
 
     k = timeseries_data_count - embedding_dimension + 1
-    trajectory_matrix = np.matrix(linalg.hankel(time_series_data, np.zeros(embedding_dimension))).T[:, :k]
+    trajectory_matrix = linalg.hankel(time_series_data, np.zeros(embedding_dimension)).T[:, :k]
     return trajectory_matrix
 
 def decompose(trajectory_matrix):
@@ -83,8 +83,8 @@ def decompose(trajectory_matrix):
     Singular value decomposition of the trajecjtory_matrix
     :param trajectory_matrix: trajectory_matrix
     """
-    unitary_matrix, singular_values, _ = linalg.svd(trajectory_matrix * trajectory_matrix.T)
-    unitary_matrix = np.matrix(unitary_matrix)
+    unitary_matrix, singular_values, _ = linalg.svd(trajectory_matrix @ trajectory_matrix.T)
+    #unitary_matrix = np.matrix(unitary_matrix)
     singular_values = np.sqrt(singular_values)
     return unitary_matrix, singular_values
 
@@ -98,7 +98,7 @@ def reconstruction(trajectory_matrix, unitary_matrix, singular_values, nsig):
     """
     xs = np.zeros(trajectory_matrix.shape)
     for i in range(nsig):
-        vi = trajectory_matrix.T * (unitary_matrix[:, i] / singular_values[i])
-        yi = singular_values[i] * unitary_matrix[:, i]
-        xs = xs + (yi * np.matrix(vi).T)
+        vi = trajectory_matrix.T @ (unitary_matrix[:, i:i+1] / singular_values[i])
+        yi = singular_values[i] * unitary_matrix[:, i:i+1]
+        xs = xs + (yi @ vi.T)
     return _diagonal_averaging(xs)
