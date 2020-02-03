@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 MINIMUM_TIMESERIES_DATA_LENGTH = 100
 
 
-def _get_contributions(singular_values):
+def get_contributions(singular_values):
     """
     Calculate the relative contribution of each of the positive singular values
     :param singular_values: numpy array
@@ -78,31 +78,27 @@ def embed(time_series_data, embedding_dimension=None):
     trajectory_matrix = np.matrix(linalg.hankel(time_series_data, np.zeros(embedding_dimension))).T[:, :k]
     return trajectory_matrix
 
-
-def reconstruction(trajectory_matrix, contribution_proportion):
+def decompose(trajectory_matrix):
     """
-    Reconstruction based on the trajectory matrix/matrices and contributionprop
+    Singular value decomposition of the trajecjtory_matrix
     :param trajectory_matrix: trajectory_matrix
-    :param contribution_proportion: the percentage of energy for reconstruction
     """
-    u, s, _ = linalg.svd(trajectory_matrix * trajectory_matrix.T)
-    u = np.matrix(u)
-    s = np.sqrt(s)
+    unitary_matrix, singular_values, _ = linalg.svd(trajectory_matrix * trajectory_matrix.T)
+    unitary_matrix = np.matrix(unitary_matrix)
+    singular_values = np.sqrt(singular_values)
+    return unitary_matrix, singular_values
 
-    ssa_s_contributions = _get_contributions(s)
-    sum_ssa = [sum(ssa_s_contributions[0:i + 1]) for i in range(ssa_s_contributions.shape[0])]
-
-    nsig = np.argmin([abs(i - contribution_proportion) for i in sum_ssa]) + 1
-
+def reconstruction(trajectory_matrix, unitary_matrix, singular_values, nsig):
+    """
+    Reconstruction the trajectory matrix/matrices based on nsig singular vectors
+    :param trajectory_matrix: trajectory_matrix
+    :param unitary_matrix: unitary matrix from singular value decomposition of trajectory_matrix
+    :param singular_values: singular values from singular value decomposition of trajectory_matrix
+    :param nsig: number of singular vectors used for reconstruction
+    """
     xs = np.zeros(trajectory_matrix.shape)
     for i in range(nsig):
-        vi = trajectory_matrix.T * (u[:, i] / s[i])
-        yi = s[i] * u[:, i]
+        vi = trajectory_matrix.T * (unitary_matrix[:, i] / singular_values[i])
+        yi = singular_values[i] * unitary_matrix[:, i]
         xs = xs + (yi * np.matrix(vi).T)
-    r = len(ssa_s_contributions)
-    log.debug('Rank of trajectory: %(rank)d', {'rank': r})
-    log.debug('Rank of reconstructed of trajectory matrix: %(nsig)s', {'nsig': nsig})
-
-    characteristic = round((s[:r] ** 2).sum() / (s ** 2).sum(), 4)
-    log.debug('Characteristic of projection: %(characteristics)f', {'characteristics': characteristic})
-    return _diagonal_averaging(xs), nsig
+    return _diagonal_averaging(xs)
