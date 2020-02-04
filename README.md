@@ -12,5 +12,5 @@ demands = np.array(range(100))
 
 trajectory_matrix = ssa.embed(demands)
 unitary_matrix, singular_values = ssa.decompose(trajectory_matrix)
-reconstructed_demand = ssa.reconstruction(trajectory_matrix, unitary_matrix, singular_values, 2)
+reconstructed_demand = ssa.reconstruction(trajectory_matrix, unitary_matrix, singular_values, nsig=2)
 ```
