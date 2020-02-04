@@ -11,5 +11,6 @@ from phq import ssa
 demands = np.array(range(100))
 
 trajectory_matrix = ssa.embed(demands)
-reconstructed_demands, rank_reconstructed_trajectory_matrix = ssa.reconstruction(trajectory_matrix, contribution_proportion=0.9)
+unitary_matrix, singular_values = ssa.decompose(trajectory_matrix)
+reconstructed_demand = ssa.reconstruction(trajectory_matrix, unitary_matrix, singular_values, 2)
 ```
